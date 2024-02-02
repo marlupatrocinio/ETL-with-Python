@@ -40,3 +40,38 @@ if (BOCResponse.status_code == 200):
         BOCDates.append(datetime.datetime.strptime(row['d'], '%Y-%m-%d'))
         BOCRates.append(decimal.Decimal(row['FXUSDCAD']['v']))
         
+        #create petl table from column arrays and rename the columns
+        exchangeRates = petl.fromcolumns([BOCDates, BOCRates], header = ['date', 'rate'])
+        
+        #load the expense doc
+        try:
+            expenses = petl.io.xlsx.fromxlsx('Expenses.xlsx', sheet = 'Github')
+        except Exception as e:
+            print('Could not load expenses: ' + str(e))
+            sys.exit()
+            
+        #join table
+        expenses = petl.outerjoin(exchangeRates, expenses, key = 'date')
+        
+        #fill missing values
+        expenses = petl.filldown(expenses, 'rate')
+        
+        #remove dates with no expenses
+        expenses = petl.select(expenses, lambda rec: rec.USD != None)
+        
+        # add CDN column
+        expenses = petl.addfield(expenses,'CAD', lambda rec: decimal.Decimal(rec.USD) * rec.rate)
+
+        try:
+            dbConnection = pymssql.connect(server=destServer,database=destDatabase,user=user,password=password)
+        except Exception as e:
+            print('could not connect to database:' + str(e))
+            sys.exit()
+
+        # populate Expenses database table
+        try:
+            petl.io.todb (expenses,dbConnection,'Expenses')
+        except Exception as e:
+            print('could not write to database:' + str(e))
+            
+    print (expenses)
